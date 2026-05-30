@@ -172,7 +172,7 @@ export function makeKiroAdapter(
 
     const adapter: ProviderAdapterShape<ProviderAdapterError> = {
       provider: PROVIDER,
-      capabilities: { sessionModelSwitch: "unsupported" },
+      capabilities: { sessionModelSwitch: "in-session" },
 
       startSession: (input) =>
         withThreadLock(
@@ -395,6 +395,12 @@ export function makeKiroAdapter(
           ctx.turns.push({ id: turnId, items: [] });
 
           const promptContent = [{ type: "text" as const, text: input.input ?? "" }];
+
+          // Switch model mid-session if changed
+          const model = input.modelSelection?.model;
+          if (model && model !== "auto") {
+            yield* ctx.acp.setModel(model).pipe(Effect.ignore);
+          }
 
           const promptExit = yield* ctx.acp
             .prompt({ prompt: promptContent })
