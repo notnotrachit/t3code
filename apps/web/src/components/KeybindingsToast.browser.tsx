@@ -130,6 +130,7 @@ function createBaseServerConfig(): ServerConfig {
           serverPassword: "",
           customModels: [],
         },
+        kiro: { enabled: true, binaryPath: "kiro-cli", customModels: [] },
       },
     },
   };
