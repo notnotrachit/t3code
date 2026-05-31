@@ -1,86 +1,60 @@
 import { StatusBar } from "expo-status-bar";
-import { ActivityIndicator, StyleSheet, View } from "react-native";
-import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
-import { useMemo, useState } from "react";
-
+import { NavigationContainer } from "@react-navigation/native";
+import { SafeAreaProvider } from "react-native-safe-area-context";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
+import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { HomeScreen } from "./src/screens/HomeScreen";
 import { WorkspaceScreen } from "./src/screens/WorkspaceScreen";
-import { colors } from "./src/theme";
-import { useSavedEnvironments } from "./src/hooks/useSavedEnvironments";
-import type { SavedEnvironmentRecord } from "./src/types";
+import { QRScanScreen } from "./src/screens/QRScanScreen";
+import { ThemeProvider, useTheme } from "./src/theme/ThemeContext";
 
-export default function App() {
-  const { environments, loading, error, addEnvironment, removeEnvironment, reload } =
-    useSavedEnvironments();
-  const [selectedEnvironmentId, setSelectedEnvironmentId] = useState<string | null>(null);
+const Stack = createNativeStackNavigator();
 
-  const selectedEnvironment = useMemo<SavedEnvironmentRecord | null>(
-    () =>
-      selectedEnvironmentId === null
-        ? null
-        : (environments.find(
-            (environment) => environment.environmentId === selectedEnvironmentId,
-          ) ?? null),
-    [environments, selectedEnvironmentId],
-  );
-
-  const handleRemoveEnvironment = async (environmentId: string) => {
-    await removeEnvironment(environmentId);
-    if (selectedEnvironmentId === environmentId) {
-      setSelectedEnvironmentId(null);
-    }
-  };
-
-  let content;
-  if (loading) {
-    content = (
-      <View style={styles.centered}>
-        <ActivityIndicator color={colors.accent} size="large" />
-      </View>
-    );
-  } else if (selectedEnvironment === null) {
-    content = (
-      <HomeScreen
-        environments={environments}
-        error={error}
-        onAddEnvironment={addEnvironment}
-        onReload={reload}
-        onRemoveEnvironment={handleRemoveEnvironment}
-        onSelectEnvironment={(environmentId) => {
-          setSelectedEnvironmentId(environmentId);
-        }}
-      />
-    );
-  } else {
-    content = (
-      <WorkspaceScreen
-        environment={selectedEnvironment}
-        onBack={() => {
-          setSelectedEnvironmentId(null);
-        }}
-      />
-    );
-  }
+function AppInner() {
+  const { colorScheme, colors } = useTheme();
 
   return (
-    <SafeAreaProvider>
-      <SafeAreaView style={styles.safeArea}>
-        <StatusBar />
-        {content}
-      </SafeAreaView>
-    </SafeAreaProvider>
+    <NavigationContainer
+      theme={{
+        dark: colorScheme === "dark",
+        colors: {
+          background: colors.background,
+          card: colors.surface,
+          border: colors.border,
+          text: colors.text,
+          primary: colors.accent,
+          notification: colors.accent,
+        },
+        fonts: {
+          regular: { fontFamily: "System", fontWeight: "400" as const },
+          medium: { fontFamily: "System", fontWeight: "500" as const },
+          bold: { fontFamily: "System", fontWeight: "700" as const },
+          heavy: { fontFamily: "System", fontWeight: "800" as const },
+        },
+      }}
+    >
+      <StatusBar style={colorScheme === "dark" ? "light" : "dark"} />
+      <Stack.Navigator screenOptions={{ headerShown: false }}>
+        <Stack.Screen name="Home" component={HomeScreen} />
+        <Stack.Screen name="Workspace" component={WorkspaceScreen} />
+        <Stack.Screen
+          name="QRScan"
+          component={QRScanScreen}
+          options={{ presentation: "fullScreenModal" }}
+        />
+      </Stack.Navigator>
+    </NavigationContainer>
   );
 }
 
-const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
-  centered: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: colors.background,
-  },
-});
+export default function App() {
+  return (
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaProvider>
+        <ThemeProvider>
+          <AppInner />
+        </ThemeProvider>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
+  );
+}

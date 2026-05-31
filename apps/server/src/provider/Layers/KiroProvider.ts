@@ -29,19 +29,64 @@ const KIRO_PRESENTATION = {
 const EMPTY_CAPABILITIES = createModelCapabilities({ optionDescriptors: [] });
 const BUILT_IN_MODELS: ReadonlyArray<ServerProviderModel> = [
   { slug: "auto", name: "Auto", isCustom: false, capabilities: EMPTY_CAPABILITIES },
-  { slug: "claude-opus-4.8", name: "Claude Opus 4.8", isCustom: false, capabilities: EMPTY_CAPABILITIES },
-  { slug: "claude-opus-4.7", name: "Claude Opus 4.7", isCustom: false, capabilities: EMPTY_CAPABILITIES },
-  { slug: "claude-opus-4.6", name: "Claude Opus 4.6", isCustom: false, capabilities: EMPTY_CAPABILITIES },
-  { slug: "claude-sonnet-4.6", name: "Claude Sonnet 4.6", isCustom: false, capabilities: EMPTY_CAPABILITIES },
-  { slug: "claude-opus-4.5", name: "Claude Opus 4.5", isCustom: false, capabilities: EMPTY_CAPABILITIES },
-  { slug: "claude-sonnet-4.5", name: "Claude Sonnet 4.5", isCustom: false, capabilities: EMPTY_CAPABILITIES },
-  { slug: "claude-sonnet-4", name: "Claude Sonnet 4", isCustom: false, capabilities: EMPTY_CAPABILITIES },
-  { slug: "claude-haiku-4.5", name: "Claude Haiku 4.5", isCustom: false, capabilities: EMPTY_CAPABILITIES },
+  {
+    slug: "claude-opus-4.8",
+    name: "Claude Opus 4.8",
+    isCustom: false,
+    capabilities: EMPTY_CAPABILITIES,
+  },
+  {
+    slug: "claude-opus-4.7",
+    name: "Claude Opus 4.7",
+    isCustom: false,
+    capabilities: EMPTY_CAPABILITIES,
+  },
+  {
+    slug: "claude-opus-4.6",
+    name: "Claude Opus 4.6",
+    isCustom: false,
+    capabilities: EMPTY_CAPABILITIES,
+  },
+  {
+    slug: "claude-sonnet-4.6",
+    name: "Claude Sonnet 4.6",
+    isCustom: false,
+    capabilities: EMPTY_CAPABILITIES,
+  },
+  {
+    slug: "claude-opus-4.5",
+    name: "Claude Opus 4.5",
+    isCustom: false,
+    capabilities: EMPTY_CAPABILITIES,
+  },
+  {
+    slug: "claude-sonnet-4.5",
+    name: "Claude Sonnet 4.5",
+    isCustom: false,
+    capabilities: EMPTY_CAPABILITIES,
+  },
+  {
+    slug: "claude-sonnet-4",
+    name: "Claude Sonnet 4",
+    isCustom: false,
+    capabilities: EMPTY_CAPABILITIES,
+  },
+  {
+    slug: "claude-haiku-4.5",
+    name: "Claude Haiku 4.5",
+    isCustom: false,
+    capabilities: EMPTY_CAPABILITIES,
+  },
   { slug: "deepseek-3.2", name: "DeepSeek 3.2", isCustom: false, capabilities: EMPTY_CAPABILITIES },
   { slug: "minimax-m2.5", name: "MiniMax M2.5", isCustom: false, capabilities: EMPTY_CAPABILITIES },
   { slug: "minimax-m2.1", name: "MiniMax M2.1", isCustom: false, capabilities: EMPTY_CAPABILITIES },
   { slug: "glm-5", name: "GLM-5", isCustom: false, capabilities: EMPTY_CAPABILITIES },
-  { slug: "qwen3-coder-next", name: "Qwen3 Coder Next", isCustom: false, capabilities: EMPTY_CAPABILITIES },
+  {
+    slug: "qwen3-coder-next",
+    name: "Qwen3 Coder Next",
+    isCustom: false,
+    capabilities: EMPTY_CAPABILITIES,
+  },
 ];
 
 export function buildInitialKiroProviderSnapshot(

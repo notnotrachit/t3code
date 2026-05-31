@@ -140,9 +140,16 @@ function applyThreadEvent(
   }
 }
 
-export function useThreadDetail(client: WsRpcClient | null, threadId: ThreadId | null) {
+export function useThreadDetail(
+  client: WsRpcClient | null,
+  threadId: ThreadId | null,
+  turnState?: string,
+) {
   const [thread, setThread] = useState<OrchestrationThread | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // Re-subscribe when turn completes to get fresh snapshot with full message text
+  const refreshKey = `${threadId}:${turnState ?? ""}`;
 
   useEffect(() => {
     if (!client || threadId === null) {
@@ -151,12 +158,12 @@ export function useThreadDetail(client: WsRpcClient | null, threadId: ThreadId |
       return;
     }
 
-    setThread(null);
-    setError(null);
+    let active = true;
 
     const unsubscribe = client.orchestration.subscribeThread(
       { threadId },
       (item) => {
+        if (!active) return;
         if (item.kind === "snapshot") {
           setThread(item.snapshot.thread);
           return;
@@ -171,9 +178,10 @@ export function useThreadDetail(client: WsRpcClient | null, threadId: ThreadId |
     );
 
     return () => {
+      active = false;
       unsubscribe();
     };
-  }, [client, threadId]);
+  }, [client, refreshKey]);
 
   return { thread, error };
 }

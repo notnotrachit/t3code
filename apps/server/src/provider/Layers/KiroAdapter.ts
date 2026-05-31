@@ -189,7 +189,12 @@ export function makeKiroAdapter(
 
             const acp = yield* Effect.gen(function* () {
               const acpLayer = AcpSessionRuntime.layer({
-                spawn: buildKiroAcpSpawnInput(kiroSettings, cwd, options?.environment, input.modelSelection?.model),
+                spawn: buildKiroAcpSpawnInput(
+                  kiroSettings,
+                  cwd,
+                  options?.environment,
+                  input.modelSelection?.model,
+                ),
                 cwd,
                 clientInfo: { name: "t3-code", version: "0.0.0" },
                 ...(acpNativeLoggers.requestLogger
@@ -209,9 +214,10 @@ export function makeKiroAdapter(
                   new ProviderAdapterProcessError({
                     provider: PROVIDER,
                     threadId: input.threadId,
-                    detail: typeof cause === "object" && cause !== null && "message" in cause
-                      ? String((cause as { message: unknown }).message)
-                      : String(cause),
+                    detail:
+                      typeof cause === "object" && cause !== null && "message" in cause
+                        ? String((cause as { message: unknown }).message)
+                        : String(cause),
                     cause,
                   }),
               ),
@@ -221,58 +227,62 @@ export function makeKiroAdapter(
             const pendingUserInputs = new Map<ApprovalRequestId, PendingUserInput>();
 
             // Wire permission handler
-            yield* acp.handleRequestPermission((request) =>
-              Effect.gen(function* () {
-                const requestId = ApprovalRequestId.make(yield* randomUUIDv4);
-                const runtimeRequestId = RuntimeRequestId.make(requestId);
-                const parsed = parsePermissionRequest(request);
-                const decision = yield* Deferred.make<ProviderApprovalDecision>();
-                pendingApprovals.set(requestId, { decision });
+            yield* acp
+              .handleRequestPermission((request) =>
+                Effect.gen(function* () {
+                  const requestId = ApprovalRequestId.make(yield* randomUUIDv4);
+                  const runtimeRequestId = RuntimeRequestId.make(requestId);
+                  const parsed = parsePermissionRequest(request);
+                  const decision = yield* Deferred.make<ProviderApprovalDecision>();
+                  pendingApprovals.set(requestId, { decision });
 
-                yield* offerRuntimeEvent({
-                  type: "approval.requested",
-                  ...(yield* makeEventStamp()),
-                  provider: PROVIDER,
-                  instanceId: boundInstanceId,
-                  threadId: input.threadId,
-                  turnId: ctx?.activeTurnId,
-                  requestId: runtimeRequestId,
-                  payload: {
-                    requestType: parsed.requestType,
-                    title: parsed.title,
-                    detail: parsed.detail,
-                  },
-                  raw: {
-                    source: "acp.jsonrpc",
-                    method: "request_permission",
-                    payload: request,
-                  },
-                });
+                  yield* offerRuntimeEvent({
+                    type: "approval.requested",
+                    ...(yield* makeEventStamp()),
+                    provider: PROVIDER,
+                    instanceId: boundInstanceId,
+                    threadId: input.threadId,
+                    turnId: ctx?.activeTurnId,
+                    requestId: runtimeRequestId,
+                    payload: {
+                      requestType: parsed.requestType,
+                      title: parsed.title,
+                      detail: parsed.detail,
+                    },
+                    raw: {
+                      source: "acp.jsonrpc",
+                      method: "request_permission",
+                      payload: request,
+                    },
+                  });
 
-                const resolved = yield* Deferred.await(decision);
-                pendingApprovals.delete(requestId);
+                  const resolved = yield* Deferred.await(decision);
+                  pendingApprovals.delete(requestId);
 
-                yield* offerRuntimeEvent({
-                  type: "approval.resolved",
-                  ...(yield* makeEventStamp()),
-                  provider: PROVIDER,
-                  instanceId: boundInstanceId,
-                  threadId: input.threadId,
-                  turnId: ctx?.activeTurnId,
-                  requestId: runtimeRequestId,
-                  payload: { outcome: acpPermissionOutcome(resolved) },
-                });
+                  yield* offerRuntimeEvent({
+                    type: "approval.resolved",
+                    ...(yield* makeEventStamp()),
+                    provider: PROVIDER,
+                    instanceId: boundInstanceId,
+                    threadId: input.threadId,
+                    turnId: ctx?.activeTurnId,
+                    requestId: runtimeRequestId,
+                    payload: { outcome: acpPermissionOutcome(resolved) },
+                  });
 
-                return { outcome: acpPermissionOutcome(resolved) };
-              }),
-            ).pipe(Effect.provideService(Scope.Scope, sessionScope));
+                  return { outcome: acpPermissionOutcome(resolved) };
+                }),
+              )
+              .pipe(Effect.provideService(Scope.Scope, sessionScope));
 
             // Start the ACP session
-            const startResult = yield* acp.start().pipe(
-              Effect.mapError((cause) =>
-                mapAcpToAdapterError(PROVIDER, input.threadId, "start", cause),
-              ),
-            );
+            const startResult = yield* acp
+              .start()
+              .pipe(
+                Effect.mapError((cause) =>
+                  mapAcpToAdapterError(PROVIDER, input.threadId, "start", cause),
+                ),
+              );
 
             const createdAt = yield* nowIso;
             const session: ProviderSession = {
@@ -302,84 +312,82 @@ export function makeKiroAdapter(
             };
 
             // Start notification fiber to stream ACP events
-            const notificationFiber = yield* acp
-              .getEvents()
-              .pipe(
-                Stream.runForEach((parsed) =>
-                  Effect.gen(function* () {
-                    const stamp = yield* makeEventStamp();
-                    switch (parsed._tag) {
-                      case "ToolCallUpdated":
-                        yield* offerRuntimeEvent(
-                          makeAcpToolCallEvent({
-                            stamp,
-                            provider: PROVIDER,
-                            threadId: input.threadId,
-                            turnId: ctx.activeTurnId,
-                            toolCall: parsed.toolCall,
-                            rawPayload: parsed.rawPayload,
-                          }),
-                        );
-                        return;
-                      case "ContentDelta":
-                        yield* offerRuntimeEvent(
-                          makeAcpContentDeltaEvent({
-                            stamp,
-                            provider: PROVIDER,
-                            threadId: input.threadId,
-                            turnId: ctx.activeTurnId,
-                            ...(parsed.itemId ? { itemId: parsed.itemId } : {}),
-                            text: parsed.text,
-                            rawPayload: parsed.rawPayload,
-                          }),
-                        );
-                        return;
-                      case "AssistantItemStarted":
-                        yield* offerRuntimeEvent(
-                          makeAcpAssistantItemEvent({
-                            stamp,
-                            provider: PROVIDER,
-                            threadId: input.threadId,
-                            turnId: ctx.activeTurnId,
-                            itemId: parsed.itemId,
-                            lifecycle: "item.started",
-                          }),
-                        );
-                        return;
-                      case "AssistantItemCompleted":
-                        yield* offerRuntimeEvent(
-                          makeAcpAssistantItemEvent({
-                            stamp,
-                            provider: PROVIDER,
-                            threadId: input.threadId,
-                            turnId: ctx.activeTurnId,
-                            itemId: parsed.itemId,
-                            lifecycle: "item.completed",
-                          }),
-                        );
-                        return;
-                      case "PlanUpdated":
-                        yield* offerRuntimeEvent(
-                          makeAcpPlanUpdatedEvent({
-                            stamp,
-                            provider: PROVIDER,
-                            threadId: input.threadId,
-                            turnId: ctx.activeTurnId,
-                            payload: parsed.payload,
-                            source: "acp.jsonrpc",
-                            method: "session/update",
-                            rawPayload: parsed.rawPayload,
-                          }),
-                        );
-                        return;
-                      case "ModeChanged":
-                        return;
-                    }
-                  }),
-                ),
-                Effect.catch(() => Effect.void),
-                Effect.forkIn(sessionScope),
-              );
+            const notificationFiber = yield* acp.getEvents().pipe(
+              Stream.runForEach((parsed) =>
+                Effect.gen(function* () {
+                  const stamp = yield* makeEventStamp();
+                  switch (parsed._tag) {
+                    case "ToolCallUpdated":
+                      yield* offerRuntimeEvent(
+                        makeAcpToolCallEvent({
+                          stamp,
+                          provider: PROVIDER,
+                          threadId: input.threadId,
+                          turnId: ctx.activeTurnId,
+                          toolCall: parsed.toolCall,
+                          rawPayload: parsed.rawPayload,
+                        }),
+                      );
+                      return;
+                    case "ContentDelta":
+                      yield* offerRuntimeEvent(
+                        makeAcpContentDeltaEvent({
+                          stamp,
+                          provider: PROVIDER,
+                          threadId: input.threadId,
+                          turnId: ctx.activeTurnId,
+                          ...(parsed.itemId ? { itemId: parsed.itemId } : {}),
+                          text: parsed.text,
+                          rawPayload: parsed.rawPayload,
+                        }),
+                      );
+                      return;
+                    case "AssistantItemStarted":
+                      yield* offerRuntimeEvent(
+                        makeAcpAssistantItemEvent({
+                          stamp,
+                          provider: PROVIDER,
+                          threadId: input.threadId,
+                          turnId: ctx.activeTurnId,
+                          itemId: parsed.itemId,
+                          lifecycle: "item.started",
+                        }),
+                      );
+                      return;
+                    case "AssistantItemCompleted":
+                      yield* offerRuntimeEvent(
+                        makeAcpAssistantItemEvent({
+                          stamp,
+                          provider: PROVIDER,
+                          threadId: input.threadId,
+                          turnId: ctx.activeTurnId,
+                          itemId: parsed.itemId,
+                          lifecycle: "item.completed",
+                        }),
+                      );
+                      return;
+                    case "PlanUpdated":
+                      yield* offerRuntimeEvent(
+                        makeAcpPlanUpdatedEvent({
+                          stamp,
+                          provider: PROVIDER,
+                          threadId: input.threadId,
+                          turnId: ctx.activeTurnId,
+                          payload: parsed.payload,
+                          source: "acp.jsonrpc",
+                          method: "session/update",
+                          rawPayload: parsed.rawPayload,
+                        }),
+                      );
+                      return;
+                    case "ModeChanged":
+                      return;
+                  }
+                }),
+              ),
+              Effect.catch(() => Effect.void),
+              Effect.forkIn(sessionScope),
+            );
             ctx.notificationFiber = notificationFiber;
 
             sessions.set(input.threadId, ctx);
@@ -394,6 +402,16 @@ export function makeKiroAdapter(
           ctx.activeTurnId = turnId;
           ctx.turns.push({ id: turnId, items: [] });
 
+          // Emit turn.started so orchestration layer tracks this turn
+          yield* offerRuntimeEvent({
+            type: "turn.started",
+            ...(yield* makeEventStamp()),
+            provider: PROVIDER,
+            threadId: input.threadId,
+            turnId,
+            payload: { model: input.modelSelection?.model ?? "auto" },
+          });
+
           const promptContent = [{ type: "text" as const, text: input.input ?? "" }];
 
           // Switch model mid-session if changed
@@ -402,9 +420,7 @@ export function makeKiroAdapter(
             yield* ctx.acp.setModel(model).pipe(Effect.ignore);
           }
 
-          const promptExit = yield* ctx.acp
-            .prompt({ prompt: promptContent })
-            .pipe(Effect.exit);
+          const promptExit = yield* ctx.acp.prompt({ prompt: promptContent }).pipe(Effect.exit);
 
           // Only emit turn.completed if not already interrupted
           if (ctx.activeTurnId === turnId) {

@@ -1,11 +1,13 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  FlatList,
+  Keyboard,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from "react-native";
 import type { ClientOrchestrationCommand, ThreadId } from "@t3tools/contracts";
@@ -14,7 +16,11 @@ import type { SavedEnvironmentRecord } from "../types";
 import { colors, spacing } from "../theme";
 import { useEnvironmentSession } from "../hooks/useEnvironmentSession";
 import { useThreadDetail } from "../hooks/useThreadDetail";
+import { useAutoScroll } from "../hooks/useAutoScroll";
 import { newCommandId, newMessageId } from "../lib/ids";
+import { MessageBubble } from "../components/MessageBubble";
+import { Composer } from "../components/Composer";
+import { ScrollToBottomFAB } from "../components/ScrollToBottomFAB";
 
 export function ThreadScreen(props: {
   readonly environment: SavedEnvironmentRecord;
@@ -26,50 +32,49 @@ export function ThreadScreen(props: {
   const [draftMessage, setDraftMessage] = useState("");
   const [sending, setSending] = useState(false);
   const [screenError, setScreenError] = useState<string | null>(null);
+  const [keyboardResetKey, setKeyboardResetKey] = useState(0);
+  const { flatListRef, isAtBottom, onScroll, onContentSizeChange, scrollToEnd } = useAutoScroll();
 
   const shellThread = useMemo(
-    () => state.shellSnapshot?.threads.find((candidate) => candidate.id === props.threadId) ?? null,
+    () => state.shellSnapshot?.threads.find((t) => t.id === props.threadId) ?? null,
     [props.threadId, state.shellSnapshot],
   );
 
+  useEffect(() => {
+    if (Platform.OS === "ios") return;
+    const subscription = Keyboard.addListener("keyboardDidHide", () => {
+      setKeyboardResetKey((key) => key + 1);
+    });
+    return () => subscription.remove();
+  }, []);
+
   const handleSend = async () => {
-    if (!client) {
-      return;
-    }
-    const messageText = draftMessage.trim();
-    if (!messageText) {
-      return;
-    }
+    if (!client) return;
+    const text = draftMessage.trim();
+    if (!text) return;
     setSending(true);
     setScreenError(null);
     try {
-      const command: ClientOrchestrationCommand = {
+      await client.orchestration.dispatchCommand({
         type: "thread.turn.start",
         commandId: newCommandId(),
         threadId: props.threadId,
-        message: {
-          messageId: newMessageId(),
-          role: "user",
-          text: messageText,
-          attachments: [],
-        },
+        message: { messageId: newMessageId(), role: "user", text, attachments: [] },
         createdAt: new Date().toISOString(),
         runtimeMode: shellThread?.runtimeMode ?? "full-access",
         interactionMode: shellThread?.interactionMode ?? "default",
-      };
-      await client.orchestration.dispatchCommand(command);
+      });
       setDraftMessage("");
-    } catch (error) {
-      setScreenError(error instanceof Error ? error.message : "Failed to send message.");
+      scrollToEnd();
+    } catch (e) {
+      setScreenError(e instanceof Error ? e.message : "Failed to send.");
     } finally {
       setSending(false);
     }
   };
 
   const handleInterrupt = async () => {
-    if (!client) {
-      return;
-    }
+    if (!client) return;
     try {
       await client.orchestration.dispatchCommand({
         type: "thread.turn.interrupt",
@@ -78,8 +83,8 @@ export function ThreadScreen(props: {
         ...(shellThread?.latestTurn?.turnId ? { turnId: shellThread.latestTurn.turnId } : {}),
         createdAt: new Date().toISOString(),
       });
-    } catch (error) {
-      setScreenError(error instanceof Error ? error.message : "Failed to interrupt turn.");
+    } catch (e) {
+      setScreenError(e instanceof Error ? e.message : "Failed to interrupt.");
     }
   };
 
@@ -87,87 +92,74 @@ export function ThreadScreen(props: {
     <View style={styles.screen}>
       <View style={styles.header}>
         <Pressable onPress={props.onBack}>
-          <Text style={styles.actionText}>Back</Text>
+          <Text style={styles.action}>Back</Text>
         </Pressable>
         <View style={styles.headerBody}>
           <Text numberOfLines={1} style={styles.headerTitle}>
             {thread?.title ?? shellThread?.title ?? "Thread"}
           </Text>
           <Text style={styles.headerMeta}>
-            {shellThread?.session?.status ?? "idle"} ·{" "}
-            {shellThread?.modelSelection.provider ?? "unknown"}
+            {shellThread?.session?.status ?? "idle"} · {shellThread?.modelSelection.model ?? "auto"}
           </Text>
         </View>
         {shellThread?.latestTurn?.state === "running" ? (
           <Pressable onPress={() => void handleInterrupt()}>
-            <Text style={[styles.actionText, styles.dangerText]}>Interrupt</Text>
+            <Text style={styles.danger}>Stop</Text>
           </Pressable>
         ) : (
-          <View style={styles.spacer} />
+          <View style={{ width: 40 }} />
         )}
       </View>
 
-      <ScrollView contentContainerStyle={styles.timeline}>
-        {thread === null ? (
-          <ActivityIndicator color={colors.accent} />
+      <KeyboardAvoidingView
+        key={Platform.OS === "ios" ? "ios-keyboard" : `android-keyboard-${keyboardResetKey}`}
+        style={{ flex: 1 }}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        contentContainerStyle={styles.keyboardContent}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
+      >
+        {!thread ? (
+          <View style={styles.centered}>
+            <ActivityIndicator color={colors.accent} />
+          </View>
         ) : (
-          <>
-            {thread.messages.map((message) => (
-              <View
-                key={message.id}
-                style={[
-                  styles.messageBubble,
-                  message.role === "user" ? styles.userBubble : styles.assistantBubble,
-                ]}
-              >
-                <Text style={styles.messageRole}>{message.role.toUpperCase()}</Text>
-                <Text style={styles.messageText}>{message.text || "(empty message)"}</Text>
-                <Text style={styles.messageMeta}>
-                  {message.streaming ? "Streaming…" : message.updatedAt}
-                </Text>
-              </View>
-            ))}
-
-            {thread.activities.length > 0 ? (
-              <View style={styles.activitySection}>
-                <Text style={styles.sectionTitle}>Activity</Text>
-                {thread.activities.map((activity) => (
-                  <View key={activity.id} style={styles.activityCard}>
-                    <Text style={styles.activityTitle}>{activity.summary}</Text>
-                    <Text style={styles.messageMeta}>
-                      {activity.kind} · {activity.createdAt}
-                    </Text>
-                  </View>
-                ))}
-              </View>
-            ) : null}
-          </>
+          <View style={{ flex: 1 }}>
+            <FlatList
+              ref={flatListRef}
+              data={thread.messages}
+              keyExtractor={(m) => m.id}
+              onScroll={onScroll}
+              onContentSizeChange={onContentSizeChange}
+              scrollEventThrottle={16}
+              contentContainerStyle={{ padding: spacing.lg, gap: spacing.md }}
+              renderItem={({ item }) => (
+                <MessageBubble
+                  role={item.role as "user" | "assistant"}
+                  text={item.text}
+                  streaming={item.streaming}
+                  meta={item.updatedAt}
+                />
+              )}
+            />
+            <ScrollToBottomFAB visible={!isAtBottom} onPress={scrollToEnd} />
+            <Composer
+              value={draftMessage}
+              onChangeText={setDraftMessage}
+              onSend={() => void handleSend()}
+              sending={sending}
+              disabled={!client}
+              error={screenError}
+            />
+          </View>
         )}
-      </ScrollView>
-
-      <View style={styles.composer}>
-        {screenError ? <Text style={styles.error}>{screenError}</Text> : null}
-        <TextInput
-          placeholder="Send a follow-up"
-          placeholderTextColor={colors.textMuted}
-          value={draftMessage}
-          onChangeText={setDraftMessage}
-          multiline
-          style={[styles.input, styles.multiline]}
-        />
-        <Pressable onPress={() => void handleSend()} style={styles.sendButton}>
-          <Text style={styles.sendButtonLabel}>{sending ? "Sending…" : "Send"}</Text>
-        </Pressable>
-      </View>
+      </KeyboardAvoidingView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
+  screen: { flex: 1, backgroundColor: colors.background },
+  keyboardContent: { flex: 1 },
   header: {
     flexDirection: "row",
     alignItems: "center",
@@ -177,112 +169,10 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
-  headerBody: {
-    flex: 1,
-    marginHorizontal: spacing.sm,
-  },
-  headerTitle: {
-    color: colors.text,
-    fontSize: 17,
-    fontWeight: "700",
-  },
-  headerMeta: {
-    color: colors.textMuted,
-    marginTop: 2,
-  },
-  actionText: {
-    color: colors.accent,
-    fontWeight: "600",
-  },
-  dangerText: {
-    color: colors.danger,
-  },
-  spacer: {
-    width: 60,
-  },
-  timeline: {
-    padding: spacing.lg,
-    gap: spacing.md,
-  },
-  messageBubble: {
-    borderRadius: 18,
-    padding: spacing.md,
-    gap: spacing.xs,
-  },
-  userBubble: {
-    backgroundColor: "#15345f",
-  },
-  assistantBubble: {
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  messageRole: {
-    color: colors.textMuted,
-    fontSize: 11,
-    fontWeight: "700",
-    letterSpacing: 0.6,
-  },
-  messageText: {
-    color: colors.text,
-    fontSize: 15,
-    lineHeight: 22,
-  },
-  messageMeta: {
-    color: colors.textMuted,
-    fontSize: 12,
-  },
-  activitySection: {
-    gap: spacing.sm,
-    paddingTop: spacing.md,
-  },
-  sectionTitle: {
-    color: colors.text,
-    fontWeight: "700",
-    fontSize: 16,
-  },
-  activityCard: {
-    borderRadius: 14,
-    padding: spacing.md,
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.border,
-    gap: spacing.xs,
-  },
-  activityTitle: {
-    color: colors.text,
-    fontWeight: "600",
-  },
-  composer: {
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-    padding: spacing.md,
-    gap: spacing.sm,
-  },
-  input: {
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.input,
-    color: colors.text,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-  },
-  multiline: {
-    minHeight: 88,
-    textAlignVertical: "top",
-  },
-  sendButton: {
-    backgroundColor: colors.accent,
-    borderRadius: 14,
-    paddingVertical: 14,
-    alignItems: "center",
-  },
-  sendButtonLabel: {
-    color: colors.text,
-    fontWeight: "700",
-  },
-  error: {
-    color: colors.danger,
-  },
+  headerBody: { flex: 1, marginHorizontal: spacing.sm },
+  headerTitle: { color: colors.text, fontSize: 17, fontWeight: "700" },
+  headerMeta: { color: colors.textMuted, marginTop: 2, fontSize: 13 },
+  action: { color: colors.accent, fontWeight: "600" },
+  danger: { color: colors.danger, fontWeight: "700" },
+  centered: { flex: 1, alignItems: "center", justifyContent: "center" },
 });
